@@ -31,7 +31,7 @@ Car		= carro da montanha russa
 	Criei o ParkManager por causa de um problema, como a main é a responsável por crias as threads dos passageiros e ela só passa a checar o fechamento do parque após a criação dos passageiros, se colocar um número muito grande de passageiros a main vai ficar presa muito tempo no loop criando as threads (e eu ainda adicionei um sleep opcional), nisso, se colocar números pequenos nos outros parâmetros, como "viagens para o parque fechar", "número de assentos" e "tempo da viagem", o programa completa as viagens para o parque fechar msa a main ainda está no loop criando as threads dos passageiros, logo não tem como checar a variável do limite de viagens e o programa continua rodando quando deveria ter parado. Nisso a criação do ParkManager garante que mesmo com apenas 1 viagem e muitos passageiros o parque ainda é fechado.
 
 
-	Além disso, quando o parque fecha, os visitantes que estão em fila não andam no brinquedo, só quem ficou no brinquedo.
+	Além disso, quando o parque fecha, os visitantes que estão em fila não andam no brinquedo, só quem ficou no brinquedo, pois como o parque fechou os visitantes que estão passeando devem se retirar do parque e o carro apenas sai quando estiver cheio, portanto os que estão na fila não conseguem encher o carro e devem se retirar também.
 
 
 
