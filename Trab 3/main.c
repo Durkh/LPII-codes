@@ -46,8 +46,9 @@ size_t strlcat(char* dest, const char* src, size_t siz){
 #include <assert.h>
 
 #define SERVER_PORT 9000
+#define BUFFER_SIZE 1024
 #define QTD_CLIENTS 10
-#define QTD_EXIT    5
+#define QTD_EXIT    4
 
 
 #define PRINT_ERROR(msg)    perror(msg);\
@@ -71,6 +72,31 @@ typedef struct {
 
 }tBuffer;
 
+static int WriteOnBuffer(tBuffer* shrdBuffer, const char *buf){
+
+    //trava o mutex para acesso ao buffer
+    pthread_mutex_lock(&shrdBuffer->bufferMutex);
+
+                
+    //como não foi dito o que deve ser feito quando o buffer enche, para não crashar o server, quando o buffer enche
+    //ele zera o buffer e concatena a nova mensagem
+    if(strlcat(shrdBuffer->buf, buf , BUFFER_SIZE) >= BUFFER_SIZE){
+        memset(shrdBuffer->buf, '\0', BUFFER_SIZE);
+    
+        //se na segunda tentativa de escrever, com o buffer zerado, ainda for maior, então a string é maior que 1024
+        //o que tecnicamente não acontece pois o write no handler só lê 1024 caracteres
+        //mas se o programa for modificado é bom ter essa checagem para não ter acesso ilegal de memória
+        if(strlcat(shrdBuffer->buf, buf , BUFFER_SIZE) >= BUFFER_SIZE){
+            return 0;    
+        }
+    }
+
+    //libera o mutex
+    pthread_mutex_unlock(&shrdBuffer->bufferMutex);
+
+    return 1;
+}
+
 typedef struct {
     
     long  clientFD;
@@ -78,7 +104,7 @@ typedef struct {
 
 }tClient;
 
-tBuffer shrdBuffer = { {'\0'}, PTHREAD_MUTEX_INITIALIZER};
+tBuffer shrdBuffer = {.bufferMutex = PTHREAD_MUTEX_INITIALIZER};
 pthread_barrier_t finishingBarrier;
 
 
@@ -143,7 +169,7 @@ int main(){
         sem_wait(&clientQtdLimit);
 
         //seta o t_idx na vaga vazia, por conta do semáforo garantimos que sempre que chegue aqui terá ao menos 1 vaga aberta
-        for(t_idx = 0; clients[t_idx].clientFD == 0; t_idx++);
+        for(t_idx = 0; clients[t_idx].clientFD != 0; t_idx++);
 
         //garante que t_idx não estoura o array
         assert(t_idx <= QTD_CLIENTS);
@@ -190,7 +216,7 @@ _Noreturn void* ClientHandler(void* args){
 
 #ifdef VERBOSE
 
-                PRINT_AND_LINE("%d/4 closing requests", __atomic_add_fetch(&closingReq, 1, __ATOMIC_SEQ_CST));
+                PRINT_AND_LINE("%d/%d closing requests", __atomic_add_fetch(&closingReq, 1, __ATOMIC_SEQ_CST), QTD_EXIT);
 
 #endif
                 //fecha a conexão com o cliente
@@ -202,7 +228,7 @@ _Noreturn void* ClientHandler(void* args){
                 //barreira de espera de saída
                 pthread_barrier_wait(&finishingBarrier);
                 PUTS_AND_LINE("CLOSING THE SERVER");
-                pthread_exit(EXIT_SUCCESS);         
+                exit(EXIT_SUCCESS);         
 
             }else{
 
@@ -210,22 +236,16 @@ _Noreturn void* ClientHandler(void* args){
                 PUTS_AND_LINE("concatenating the string");
 #endif
 
-                //trava o mutex para acesso ao buffer
-                pthread_mutex_lock(&shrdBuffer.bufferMutex);
-
                 //garante que a string lida termina com o '/0' para o funcionamento ideal do strlcat
                 assert(buf[1025] == '\0');
 
-                if(strlcat(shrdBuffer.buf, buf , 1024) >= 1024){
-                    errno = ENOMEM;                    
-                    //chamada válida pois está protegido pelo mutex
-                    PRINT_ERROR("SHARED BUFFER OVERFLOW");
+                //tenta escrever no buffer compartilhado
+                if(!WriteOnBuffer(&shrdBuffer, buf)){
+                    write(client->clientFD, "TOO BIG INPUT\n", strlen("TOO BIG INPUT\n"));
                 }
-
+                                
                 write(client->clientFD, shrdBuffer.buf, strlen(shrdBuffer.buf)); 
                 //responde ao cliente com o buffer compartilhado
-
-                pthread_mutex_unlock(&shrdBuffer.bufferMutex);
 
 #ifdef VERBOSE
 
@@ -235,7 +255,4 @@ _Noreturn void* ClientHandler(void* args){
             }       
         } 
     }
-    
-    //esse código nunca é alcançado mas é bom deixar explícito
-    pthread_exit(EXIT_SUCCESS);
 }
